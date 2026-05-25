@@ -29,13 +29,16 @@ extensions:
 
   # Official GitHub MCP server — Go binary from github/github-mcp-server.
   # Install once with: brew install github-mcp-server
+  # NOTE: no `envs:` block. Goose treats values in that map literally
+  # (no shell `${VAR}` expansion). The MCP stdio subprocess inherits
+  # the parent process env, so exporting GITHUB_PERSONAL_ACCESS_TOKEN
+  # before invoking `goose run` is sufficient — and verified during
+  # eval-01 wrap-up.
   github:
     type: stdio
     name: github
     cmd: github-mcp-server
     args:
       - stdio
-    envs:
-      GITHUB_PERSONAL_ACCESS_TOKEN: ${GITHUB_PERSONAL_ACCESS_TOKEN}
     enabled: true
     timeout: 300
