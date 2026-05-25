@@ -25,10 +25,9 @@ extensions:
     timeout: 300
   - type: stdio
     name: github
-    cmd: npx
+    cmd: github-mcp-server
     args:
-      - "-y"
-      - "@modelcontextprotocol/server-github"
+      - stdio
     envs:
       GITHUB_PERSONAL_ACCESS_TOKEN: ${GITHUB_PERSONAL_ACCESS_TOKEN}
     timeout: 300

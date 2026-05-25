@@ -23,15 +23,14 @@ extensions:
     enabled: true
     timeout: 600
 
-  # Official GitHub MCP server (npm). Swap to the Go binary or the
-  # Docker image if/when we want richer auth or org-level features.
+  # Official GitHub MCP server — Go binary from github/github-mcp-server.
+  # Install once with: brew install github-mcp-server
   github:
     type: stdio
     name: github
-    cmd: npx
+    cmd: github-mcp-server
     args:
-      - "-y"
-      - "@modelcontextprotocol/server-github"
+      - stdio
     envs:
       GITHUB_PERSONAL_ACCESS_TOKEN: ${GITHUB_PERSONAL_ACCESS_TOKEN}
     enabled: true
