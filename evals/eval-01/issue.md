@@ -1,7 +1,3 @@
-# Title
-===== 
-Eval #1 — Validate end-to-end Claude Code → Goose workflow
-
 ## Goal
 Validate the end-to-end workflow on its very first execution: Claude Code authored this issue against `prompts/issue-format.md`; Goose (qwen3.6 on bazzite.local) should pick it up, execute the subtasks, comment with results, and open a PR. The verdict in `result.md` tells us whether the harness as drafted is usable, or which pieces need to change before we point it at a real target project.
 
