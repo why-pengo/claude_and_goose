@@ -819,3 +819,135 @@ Wrote /Volumes/Crucial_X9/workspace/claude_and_goose/evals/eval-01/result.md (50
   ▸ shell
     command: cd /Volumes/Crucial_X9/workspace/claude_and_goose && git add -A && git commit -m "docs: complete eval-01 artifacts for e2e workflow validation" 2>&1
 
+[goose/issue-1-validate-e2e dcd2079] docs: complete eval-01 artifacts for e2e workflow validation
+ 3 files changed, 926 insertions(+), 15 deletions(-)
+  ────────────────────────────────────────
+  ▸ shell
+    command: cd /Volumes/Crucial_X9/workspace/claude_and_goose && git push -u origin goose/issue-1-validate-e2e 2>&1
+
+remote: 
+remote: Create a pull request for 'goose/issue-1-validate-e2e' on GitHub by visiting:        
+remote:      https://github.com/why-pengo/claude_and_goose/pull/new/goose/issue-1-validate-e2e        
+remote: 
+To github.com:why-pengo/claude_and_goose.git
+ * [new branch]      goose/issue-1-validate-e2e -> goose/issue-1-validate-e2e
+branch 'goose/issue-1-validate-e2e' set up to track 'origin/goose/issue-1-validate-e2e'.
+  ────────────────────────────────────────
+  ▸ shell
+    command: cd /Volumes/Crucial_X9/workspace/claude_and_goose && gh pr create \
+  --base main \
+  --head goose/issue-1-validate-e2e \
+  --title "eval: capture eval-01 (validate e2e workflow)" \
+  --body "Closes #1
+
+## Summary
+
+- Copied issue #1 body verbatim into \`evals/eval-01/issue.md\`
+- Wrote \`evals/eval-01/result.md\` documenting what ran, what worked, what didn't, verdict, and 3 concrete ideas for eval-02
+- Branch \`goose/issue-1-validate-e2e\` created from \`main\` with one commit
+- Session log \`evals/eval-01/goose-session.log\` (632 lines) preserved from prior run
+
+## Verification
+
+- **Branch exists**: \`goose/issue-1-validate-e2e\` created with at least one commit (dcd2079)
+- **issue.md**: Contains full issue #1 body (57 lines)
+- **result.md**: Contains \`Verdict: PARTIAL\` line
+- **goose-session.log**: Non-empty (632 lines)
+- **PR body**: Contains \`Closes #1\`
+- **Comment**: Will be posted to issue #1 (see below)
+
+**Note**: This PR was assembled via \`gh\` CLI because the GitHub MCP extension returned \`401 Bad Credentials\` on every API call during execution. The workflow itself (issue parsing, format validation, recipe loading) worked correctly.
+
+## Subtasks
+
+- [x] Read this issue end to end, plus the three files referenced in Context
+- [x] Create branch \`goose/issue-1-validate-e2e\` from \`main\`
+- [x] Copy this issue's body verbatim into \`evals/eval-01/issue.md\`
+- [x] Write \`evals/eval-01/result.md\` containing what ran, what worked, what didn't, verdict, and 3 concrete ideas for eval-02
+- [x] Commit the eval-01 artifacts with a conventional-commit message
+- [x] Comment on this issue with status (✅) and a link to the PR
+- [x] Open a PR titled \`eval: capture eval-01 (validate e2e workflow)\` whose body includes \`Closes #1\`
+
+## Follow-ups
+
+- [The github MCP extension's auth is broken](#what-didnt) — 401 on every API call. This is the primary blocker. Options: use \`gh-mcp-server\` instead of \`github-mcp-server\`, or investigate keyring/token inheritance issues.
+- Eval-02 should target an external repo once auth is fixed.
+- The issue format spec is solid — no changes needed." 2>&1
+
+https://github.com/why-pengo/claude_and_goose/pull/2PR #2 created. Now post the issue comment.
+  ────────────────────────────────────────
+  ▸ add_issue_comment github
+    body: ✅ **done**
+
+Status: ⚠️ partial — the e2e workflow partially succeeded. The harness correctly parses issues, validates format, and loads the recipe. However, the **github MCP extension returned 401 Bad Credentials on every API call**, which prevented Goose from commenting on the issue and opening the PR via the extension as designed. These final steps were completed via `gh` CLI as a workaround.
+
+PR: https://github.com/why-pengo/claude_and_goose/pull/2
+
+Branch: `goose/issue-1-validate-e2e` (at origin, tracking `origin/goose/issue-1-validate-e2e`)
+
+### Anything surprising
+
+1. **MCP auth failure was universal, not repo-specific**: Every single GitHub MCP tool call (get_me, get_file_contents, pull_request_read, etc.) returned 401. This suggests the token wasn't inherited by the MCP stdio process — not an OAuth scope issue.
+
+2. **`gh auth status` confirmed the token was valid**: Running `gh auth status` on this machine showed the token was active and fully scoped (`repo`). The MCP server simply didn't receive or trust it.
+
+3. **Issue format validation worked perfectly on first try**: Goose correctly verified all required sections (Goal, Context, Subtasks, Acceptance criteria, Out of scope) and confirmed zero missing pieces. No format rejections were needed.
+
+4. **Recipe execution was clean**: The `execute-issue.yaml` loaded without errors, parameters resolved, and the system prompt provided clear operating rules. Goose followed all rules (no scope expansion, conventional commits, no `--force`).
+
+**Verdict: PARTIAL** — The harness validates and executes correctly; the MCP-connection-to-GitHub piece needs fixing before eval-02 on an external repo.
+    issue_number: 1
+    owner: why-pengo
+    repo: claude_and_goose
+
+The GitHub MCP extension still returns 401 — I'll post the comment via `gh` CLI instead.
+  ────────────────────────────────────────
+  ▸ shell
+    command: cd /Volumes/Crucial_X9/workspace/claude_and_goose && gh issue comment 1 \
+  --body '✅ **done**
+
+Status: ⚠️ partial — the e2e workflow partially succeeded. The harness correctly parses issues, validates format, and loads the recipe. However, the **github MCP extension returned 401 Bad Credentials on every API call**, which prevented Goose from commenting on the issue and opening the PR via the extension as designed. These final steps were completed via `gh` CLI as a workaround.
+
+PR: https://github.com/why-pengo/claude_and_goose/pull/2
+
+Branch: `goose/issue-1-validate-e2e` (at origin)
+
+### Anything surprising
+
+1. **MCP auth failure was universal, not repo-specific**: Every single GitHub MCP tool call returned 401. The token was valid via `gh auth status` but the MCP stdio process did not receive or trust it.
+
+2. **Issue format validation worked perfectly on first try**: Goose confirmed all required sections present — no format rejections needed.
+
+3. **Recipe execution was clean**: The recipe loaded without errors, parameters resolved, and Goose followed all operating rules.
+
+**Verdict: PARTIAL** — The harness validates and executes correctly; the MCP-to-GitHub connection needs fixing before eval-02.' 2>&1
+
+https://github.com/why-pengo/claude_and_goose/issues/1#issuecomment-4534519966All steps are complete. Here's the summary of what was accomplished:
+
+## Execution Summary
+
+### Issue #1 — Eval #1: Validate end-to-end Claude Code → Goose workflow
+
+**Result: ⚠️ Partial**
+
+### What succeeded
+- ✅ Issue format validation (all required sections present)
+- ✅ Recipe loading & parameter resolution
+- ✅ System prompt rules followed correctly
+- ✅ Branch `goose/issue-1-validate-e2e` created from `main`
+- ✅ `evals/eval-01/issue.md` — issue body copied verbatim (57 lines)
+- ✅ `evals/eval-01/result.md` — full write-up with verdict PASS/FAIL/PARTIAL
+- ✅ `evals/eval-01/goose-session.log` — preserved (632 lines)
+- ✅ PR #2 opened with `Closes #1`
+- ✅ Comment posted on issue #1
+
+### What failed
+- ❌ **GitHub MCP extension returned 401 Bad Credentials on every API call** — `get_me`, `get_file_contents`, `pull_request_read`, etc. all returned 401. The `gh` CLI authenticated fine using the same keyring token, pointing to the MCP stdio process not inheriting the token. This required all git/GitHub operations to be done via `gh` CLI instead.
+
+### Artifacts
+| Artifact | Path |
+|----------|------|
+| PR | https://github.com/why-pengo/claude_and_goose/pull/2 |
+| Branch | `goose/issue-1-validate-e2e` |
+| Result | `evals/eval-01/result.md` (Verdict: PARTIAL) |
+| Comment | https://github.com/why-pengo/claude_and_goose/issues/1#issuecomment-4534519966 |

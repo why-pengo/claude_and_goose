@@ -5,46 +5,52 @@
 - **Recipe**: `recipes/execute-issue.yaml` (Execute GitHub Issue)
 - **Params**: `issue_number=1`, repo `why-pengo/claude_and_goose`
 - **Model**: `ollama/qwen3.6:latest` at `http://bazzite.local:11434`
-- **Session log**: `evals/eval-01/goose-session.log` (632 lines)
-- **MCP extensions**: `developer` (builtin) + `github` (stdio/github-mcp-server)
+- **Session log**: `evals/eval-01/goose-session.log` (953 lines)
+- **MCP extensions**: `developer` (builtin) + `github` (stdio/github-mcp-server 1.0.5)
 
-Goose loaded the recipe, read issue #1's body, validated its format against `prompts/issue-format.md`, and began executing.
+Goose loaded the recipe, read issue #1's body, validated its format against `prompts/issue-format.md`, and worked through every subtask in order.
 
 ## What worked
 
 - **Issue format validation**: Goose correctly identified issue #1 as fully compliant — all required sections (Goal, Context, Subtasks, Acceptance criteria, Out of scope) present. No missing pieces to flag.
-- **Issue body extraction**: The GitHub API (via `gh` CLI fallback since the MCP extension returned 401) returned issue body successfully. Issue body was copied to `evals/eval-01/issue.md`.
-- **Branch creation**: Branch `goose/issue-1-validate-e2e` successfully created from `origin/main`.
-- **Recipe parsing**: `recipes/execute-issue.yaml` loaded without errors; parameters resolved correctly.
-- **Context file reads**: All three Context files were read (prompts/goose-system.md, prompts/issue-format.md). Recipe YAML also read for context.
+- **Recipe parsing**: `recipes/execute-issue.yaml` loaded without errors; parameters resolved correctly. `GOOSE_ADDITIONAL_CONFIG_FILES` made `goose.yaml` visible to the run.
+- **Context file reads**: `prompts/goose-system.md`, `prompts/issue-format.md`, and the recipe were all read before execution.
+- **Branch creation + push**: `goose/issue-1-validate-e2e` created from `origin/main` and pushed (`dcd2079`).
+- **End-to-end via fallback**: When the github MCP failed, Goose used the `developer` (shell) extension to drive `gh` CLI and `git` directly. It completed every remaining subtask: copied the issue body, wrote `result.md`, committed, pushed, commented on issue #1, and opened PR #2 with `Closes #1`. The fallback wasn't scripted by the recipe — Goose chose it.
 
 ## What didn't
 
-**Critical: GitHub MCP extension returned 401 Bad Credentials on every API call.**
+**Critical: GitHub MCP extension returned `401 Bad credentials` on every API call.** Examples from the log:
 
-Every attempt to use the GitHub MCP extension tool landed on HTTP 401:
-- `github__pull_request_read` → `401 Bad credentials`
-- `github__get_file_contents` → `401` on all files
-- `github__get_me` → `401`
-- `github__list_pull_requests` → not attempted after repeated 401s
+- `github__issue_read` → 401
+- `github__get_file_contents` → 401
+- `github__get_me` → 401
 
-This means Goose could not:
-- Create or push commits via the MCP GitHub extension
-- Open a PR via the MCP GitHub extension
-- Comment on the issue via the MCP GitHub extension
+This prevented the github MCP from creating the branch, commenting on the issue, or opening the PR. Goose worked around it by switching to the shell extension + `gh` CLI (which authenticates via the macOS keyring).
 
-**Root cause**: The `GITHUB_PERSONALACCESS_TOKEN` env var is configured in `goose.yaml` for the github MCP extension, but the MCP server process did not receive a valid token. This could be a keyring resolution issue, token expiration, or the MCP stdio process not inheriting the environment variable.
+**Verified root cause (during eval-01 wrap-up):** Goose 1.35.0's extension `envs:` map takes **literal** values — no shell-style `${VAR}` expansion. The eval-01 config had:
 
-**Workaround used**: Completed the remaining steps (comment, PR creation) via `gh` CLI instead, which authenticated correctly using the keyring-backed token.
+```yaml
+envs:
+  GITHUB_PERSONAL_ACCESS_TOKEN: ${GITHUB_PERSONAL_ACCESS_TOKEN}
+```
+
+So `github-mcp-server` was launched with the literal string `"${GITHUB_PERSONAL_ACCESS_TOKEN}"` as its token, producing 401 on every call. Confirmed by re-running a minimal recipe (`/tmp/test-github-mcp.yaml`, calling only `get_me`) with the `envs:` block removed — `get_me` returned `why-pengo` cleanly. Fix committed on `main` as `db6d0ee`.
+
+**Minor deviations from the issue spec:**
+
+- `evals/eval-01/issue.md` is *almost* verbatim but Goose added a `# Title\n=====` header and dropped trailing whitespace — the subtask asked for "verbatim".
+- The comment on issue #1 opens with `✅ done` then says `⚠️ partial` in the body — inconsistent emoji, but the verdict is unambiguous.
+- The first commit Goose made (`dcd2079`) snapshotted the session log mid-run; the on-disk log grew another 132 lines before Goose finished. Captured in this PR by updating the file.
 
 ## Verdict
 
 Verdict: PARTIAL
 
-The issue format validation and recipe execution worked as designed. However, the github MCP extension's authentication failure prevents end-to-end completion using the extension as specified. The PR and issue comment were manually completed via `gh` CLI to demonstrate the expected workflow, but the MCP integration is broken.
+End-to-end completed only because Goose chose a fallback that wasn't in the recipe. The harness itself (recipe loading, format validation, subtask ordering, PR composition) worked as designed. The single bug — the `envs:` block in `goose.yaml` — is fixed on `main`.
 
-## Next time
+## Next time (eval-02 targets)
 
-1. **Investigate MCP auth**: The primary blocker for eval-02 is why the github MCP extension's `GITHUB_PERSONAL_ACCESS_TOKEN` was not accepted by the GitHub API. Options: switch to a GitHub App token (short-lived), pass token as a CLI arg to `github-mcp-server` (if supported), or switch to `gh-mcp-server` for token inheritance.
-2. **Test with a non-self-referential repo**: Eval-02 should target a simple external repo (e.g., a sandbox test repo) to confirm if the auth issue is repo-specific or universal.
-3. **Verify `gh auth status` before running**: Add a prerequisite check to the recipe or eval scripts that runs `gh auth status` first and exits early if not authenticated, rather than hitting the 401 mid-execution.
+1. **Confirm the fix in a fresh end-to-end run.** Pull the `db6d0ee` goose.yaml, file a new `goose-task` issue, and verify the github MCP path is now exclusive (no shell-extension fallback needed). Success criterion: zero `gh` CLI calls in the session log.
+2. **Move to a non-self-referential target repo.** A small sandbox repo (e.g. `why-pengo/goose-sandbox` with one Python file and a trivial task) removes any chance that operating on the harness itself biased Goose's choices.
+3. **Tighten the recipe's verbatim-copy step.** Either make it `cp` the issue body via shell (no LLM rewrite) or make the "verbatim" requirement non-optional in the prompt. The eval-01 deviation was small but indicates the model will lightly reformat unless explicitly stopped.
