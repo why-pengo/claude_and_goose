@@ -1,0 +1,47 @@
+version: "1.0.0"
+title: Plan an Epic
+description: |
+  Decompose a high-level brief into an epic issue plus child task
+  issues conforming to the claude_and_goose issue format.
+
+  STUB — Claude Code currently authors issues directly. This recipe
+  exists so we can experiment with delegating issue authoring to Goose
+  in a later eval. Not wired up yet.
+
+parameters:
+  - key: brief
+    input_type: string
+    requirement: required
+    description: One-paragraph description of the work
+  - key: repo
+    input_type: string
+    requirement: optional
+    default: why-pengo/claude_and_goose
+    description: owner/repo to file issues against
+
+extensions:
+  - type: builtin
+    name: developer
+    timeout: 300
+  - type: stdio
+    name: github
+    cmd: npx
+    args:
+      - "-y"
+      - "@modelcontextprotocol/server-github"
+    envs:
+      GITHUB_PERSONAL_ACCESS_TOKEN: ${GITHUB_PERSONAL_ACCESS_TOKEN}
+    timeout: 300
+
+prompt: |
+  TODO: this recipe is a placeholder.
+
+  When we're ready to delegate issue authoring to Goose, this prompt
+  should:
+    1. Read prompts/issue-format.md in full.
+    2. Decompose `{{ brief }}` into an epic + leaf issues.
+    3. File them in {{ repo }} via the github extension with the
+       correct labels (epic / goose-task) and dependency links.
+    4. Print the list of created issue numbers.
+
+  Until that's drafted, this recipe should not be run.

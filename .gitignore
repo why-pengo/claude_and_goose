@@ -1,0 +1,18 @@
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local-only Claude settings (per-machine)
+.claude/settings.local.json
+
+# Local env / secrets
+.env
+.env.local
+
+# Eval session logs are kept in the repo by design — do NOT ignore.
+# (evals/*/goose-session.log is part of the eval record.)

@@ -1,0 +1,87 @@
+version: "1.0.0"
+title: Execute GitHub Issue
+description: |
+  Read a GitHub issue conforming to the claude_and_goose issue format
+  (see prompts/issue-format.md), execute its subtask checklist,
+  comment with results, and open a PR if files were changed.
+
+parameters:
+  - key: issue_number
+    input_type: string
+    requirement: required
+    description: GitHub issue number to execute (e.g. "1")
+  - key: repo
+    input_type: string
+    requirement: optional
+    default: why-pengo/claude_and_goose
+    description: owner/repo to run against
+
+extensions:
+  - type: builtin
+    name: developer
+    timeout: 600
+  - type: stdio
+    name: github
+    cmd: npx
+    args:
+      - "-y"
+      - "@modelcontextprotocol/server-github"
+    envs:
+      GITHUB_PERSONAL_ACCESS_TOKEN: ${GITHUB_PERSONAL_ACCESS_TOKEN}
+    timeout: 300
+
+prompt: |
+  You are executing GitHub issue #{{ issue_number }} in {{ repo }}.
+  The full operating rules are in `prompts/goose-system.md` — read
+  that file first if you haven't already this session.
+
+  # Step 1 — Read the issue
+  Use the github extension to fetch issue #{{ issue_number }} from
+  {{ repo }}. Read the full body. Then read every file path and
+  follow every link listed in its Context section.
+
+  If the issue is missing any required section (Goal, Context,
+  Subtasks, Acceptance criteria, Out of scope), STOP and post a
+  comment asking for the missing pieces. Do not guess scope.
+
+  # Step 2 — Branch
+  Create branch `goose/issue-{{ issue_number }}-<slug>` from the
+  latest `main`. The slug is 3–5 kebab-case words drawn from the
+  issue title.
+
+  # Step 3 — Execute subtasks in order
+  For each checklist item:
+    - Make the single concrete change it describes.
+    - Verify it (run the test, build, or command listed).
+    - Commit with a conventional-commit message
+      (`feat:`, `fix:`, `test:`, `docs:`, `refactor:`).
+  Stop and comment on the issue if a subtask is ambiguous. Do not
+  invent scope. If a subtask fails twice, stop and report — do not
+  loop.
+
+  # Step 4 — Verify acceptance criteria
+  Run every observable check listed under Acceptance criteria. If any
+  fail, fix and re-verify before opening the PR.
+
+  # Step 5 — Open the PR (only if files changed)
+  Title: match the issue title.
+  Body must include, in this order:
+    - `Closes #{{ issue_number }}`
+    - `## Summary` — what changed, 2–4 bullets
+    - `## Verification` — each acceptance criterion and how you
+      confirmed it
+    - `## Subtasks` — mirror of the issue checklist, all checked
+    - `## Follow-ups` (optional) — anything out of scope you noticed
+
+  # Step 6 — Comment on the issue
+  Post a comment on #{{ issue_number }} with:
+    - Status: ✅ done | ⚠️ partial | ❌ blocked
+    - Link to the PR (or to the branch if nothing changed)
+    - Anything surprising
+
+  # Rules
+  - Never close the issue directly — `Closes` on the PR does that on merge.
+  - Never force-push. Never skip hooks (no `--no-verify`).
+  - Never edit `main` directly.
+  - One issue, one PR. Out-of-scope work goes under Follow-ups, not
+    into this PR.

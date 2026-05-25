@@ -1,0 +1,38 @@
+# Goose configuration for claude_and_goose
+#
+# Use this file by exporting:
+#   export GOOSE_CONFIG_PATH="$(pwd)/goose.yaml"
+# or by copying / symlinking it to ~/.config/goose/config.yaml.
+#
+# Required env at runtime:
+#   GITHUB_PERSONAL_ACCESS_TOKEN — for the github MCP extension
+
+GOOSE_PROVIDER: ollama
+GOOSE_MODEL: qwen3.6:latest
+OLLAMA_HOST: http://bazzite.local:11434
+
+# Bump these if Goose cuts off on long reasoning steps. qwen3.6 has a
+# generous context window and the 5090 has VRAM to spare.
+GOOSE_CONTEXT_LIMIT: 65536
+GOOSE_MAX_TURNS: 100
+
+extensions:
+  developer:
+    type: builtin
+    name: developer
+    enabled: true
+    timeout: 600
+
+  # Official GitHub MCP server (npm). Swap to the Go binary or the
+  # Docker image if/when we want richer auth or org-level features.
+  github:
+    type: stdio
+    name: github
+    cmd: npx
+    args:
+      - "-y"
+      - "@modelcontextprotocol/server-github"
+    envs:
+      GITHUB_PERSONAL_ACCESS_TOKEN: ${GITHUB_PERSONAL_ACCESS_TOKEN}
+    enabled: true
+    timeout: 300
