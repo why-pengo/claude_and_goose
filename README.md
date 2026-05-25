@@ -38,10 +38,11 @@ Ollama host (`bazzite.local`):
    open dependencies.
 2. Install Goose (see https://goose-docs.ai). Not installed by this
    repo.
-3. Point Goose at this config:
+3. Point Goose at this config and verify:
    ```
-   export GOOSE_CONFIG_PATH="$(pwd)/goose.yaml"
+   export GOOSE_ADDITIONAL_CONFIG_FILES="$(pwd)/goose.yaml"
    export GITHUB_PERSONAL_ACCESS_TOKEN=...   # for the github MCP extension
+   goose info -v                              # confirm provider/model/extensions resolved
    ```
 4. Scaffold an eval directory and run the recipe:
    ```

@@ -1,8 +1,12 @@
 # Goose configuration for claude_and_goose
 #
-# Use this file by exporting:
-#   export GOOSE_CONFIG_PATH="$(pwd)/goose.yaml"
-# or by copying / symlinking it to ~/.config/goose/config.yaml.
+# Load this in addition to the user's standard config by exporting:
+#   export GOOSE_ADDITIONAL_CONFIG_FILES="$(pwd)/goose.yaml"
+# Or copy/symlink it to ~/.config/goose/config.yaml if this is the
+# only Goose project you run.
+#
+# Verify with:  goose info -v   (should show GOOSE_PROVIDER, model,
+# and the github extension)
 #
 # Required env at runtime:
 #   GITHUB_PERSONAL_ACCESS_TOKEN — for the github MCP extension
