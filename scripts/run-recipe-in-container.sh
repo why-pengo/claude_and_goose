@@ -40,6 +40,14 @@ if [[ -z "$recipe" ]]; then
   exit 2
 fi
 
+# --recipe must be relative to the repo root; we prefix /work/ inside the
+# container. An absolute path would yield /work//Users/... and fail with
+# a confusing "file not found" deep inside Goose. Reject early.
+if [[ "$recipe" = /* ]]; then
+  echo "--recipe must be a path relative to the repo root, got: $recipe" >&2
+  exit 2
+fi
+
 if [[ -z "${GITHUB_PERSONAL_ACCESS_TOKEN:-}" ]]; then
   echo "GITHUB_PERSONAL_ACCESS_TOKEN not set in env" >&2
   exit 2

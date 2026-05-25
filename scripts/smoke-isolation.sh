@@ -65,9 +65,21 @@ check "ls /Volumes should fail or be empty" \
   "Crucial_X9\|Macintosh HD"
 
 # 5. The container is unprivileged: writes outside HOME/WORKDIR should fail.
-check "writing to /etc/passwd should fail" \
-  "echo pwned >> /etc/passwd 2>&1; true" \
-  "pwned"
+#    The redirect sends echo's stdout into the file, so we can't grep for
+#    "pwned" on stdout. Instead, assert the shell's error message appears
+#    (Permission denied / Read-only file system), and double-check the
+#    file wasn't actually modified.
+blue "  writing to /etc/passwd should be rejected"
+out="$(docker run --rm "$IMAGE" bash -c \
+  'echo pwned >> /etc/passwd 2>&1; grep -c pwned /etc/passwd' 2>&1 || true)"
+if grep -qiE "permission denied|read-only|not permitted" <<<"$out" \
+    && ! grep -qE "^[1-9]" <<<"$out"; then
+  green "    pass"
+else
+  red "    FAIL — write to /etc/passwd was not rejected:"
+  sed 's/^/      /' <<<"$out"
+  fail=1
+fi
 
 # 6. Confirm we're running as the non-root 'goose' user.
 blue "  whoami inside container"
