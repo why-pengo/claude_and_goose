@@ -17,7 +17,11 @@ ISSUE_NUMBER="${1:?Usage: $0 ISSUE_NUMBER [SESSION_LOG_PATH]}"
 # Default-log discovery (macOS/BSD-compatible)
 if [ -z "${2:-}" ]; then
   SESSION_LOG_PATH=$(find evals -name 'goose-session*.log' -type f -print 2>/dev/null \
-    | xargs ls -t 2>/dev/null | head -1)
+    | xargs ls -t 2>/dev/null | head -1 || true)
+  if [ -z "${SESSION_LOG_PATH:-}" ] || [ ! -f "$SESSION_LOG_PATH" ]; then
+    echo "No session log found under evals/ matching goose-session*.log" >&2
+    exit 1
+  fi
 else
   SESSION_LOG_PATH="$2"
 fi
@@ -25,7 +29,7 @@ fi
 # Owner/repo detection
 read -r GH_OWNER GH_REPO <<EOF
 $(gh repo view --json owner,name \
-  --jq '\(.owner.login) \(.name)')
+  --jq '"\(.owner.login) \(.name)"')
 EOF
 
 # --- Check 1: Tool calls present in session log ---
@@ -39,7 +43,8 @@ else
 fi
 
 # --- Check 2: Branch on remote ---
-br_count=$(gh api repos/${GH_OWNER}/${GH_REPO}/branches --jq '[ .[] | select(.name | startswith("goose/issue-" + "'"$ISSUE_NUMBER"" + "-")) ] | length' 2>/dev/null || echo 0)
+br_count=$(gh api "repos/${GH_OWNER}/${GH_REPO}/branches" --jq '.[].name' 2>/dev/null \
+  | grep -c "^goose/issue-${ISSUE_NUMBER}-" || true)
 if [ "$br_count" -ge 1 ]; then
   echo "[CHECK 2] Branch on remote: PASS ($br_count branches)"
   CHECK_2_PASS=true
