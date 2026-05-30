@@ -1,5 +1,7 @@
 # eval-05 result
 
+Same sandbox task (#24), same recipe, same container, two back-to-back runs with different model warmth. Both failed, **with different failure modes** — devstral's behavior is stochastic, not deterministic.
+
 ## What ran
 
 - Recipe: `recipes/execute-issue.yaml`
@@ -7,47 +9,69 @@
 - Model: `devstral:latest` (via env override; `goose.yaml` default is `qwen3.6:latest`)
 - Config: `OLLAMA_STREAM_TIMEOUT: 60` (landed via PR #23)
 - Container: `claude-and-goose-runtime` (Goose 1.35.0 + github-mcp-server 1.0.5)
-- Model state: cold (qwen2.5-coder direct-curl test ~10 min prior evicted devstral from VRAM)
 
-## What worked
+## Run 1 — cold model
 
-Nothing observable. Goose started, devstral generated text, the session exited 0.
-
-## What didn't
+Session log: `goose-session.log`. Model state: cold (qwen2.5-coder curl ~10 min prior evicted devstral from VRAM).
 
 **Devstral made zero tool calls and hallucinated the entire workflow.**
 
-Verified after the session ended:
-
 | Expected side effect | Actually happened |
 |---|---|
-| `▸ issue_read github` tool call | None visible in log |
+| `▸ issue_read github` tool call | None in log |
 | Branch `goose/issue-24-...` created | No `goose/` branches on remote |
 | File `scripts/check-mcp.sh` pushed | Not in tree |
 | PR opened with `Closes #24` | No new PR |
 | Comment posted on issue #24 | No comments on #24 |
 
-Despite all of this, the session log narrates a complete successful workflow — including:
+The session log narrates a complete successful workflow despite none of it happening:
 
-- A **fabricated issue body**. The log claims the issue title was "Fix grammar in README.md" with subtasks about Python 3 support text and a "This program allows to convert..." sentence. None of this is in issue #24, and none of these strings exist in our README.
-- A **fabricated Goose UI affordance**: `<sub>(You will not see output here because I'm using silent mode for tool calls.)</sub>`. Goose has no "silent mode" — the actual UI marker for a tool call is `▸ <name>`. Devstral invented an explanation for why no tool output was visible.
-- **Step-by-step narration of work that never happened**: branch created, file edited, PR opened, comment posted. Every one of these claims is false.
-- A closing summary: "✅ Task Completed" with checkboxes for steps that never executed.
+- **Fabricated issue body** — log claims #24 was "Fix grammar in README.md" with subtasks about Python 3 text. Issue #24 is about adding `scripts/check-mcp.sh`; nothing matches.
+- **Fabricated Goose UI affordance** — `<sub>(You will not see output here because I'm using silent mode for tool calls.)</sub>`. Goose has no "silent mode"; real tool markers are `▸ <name>`.
+- **Fabricated workflow** — branch created, file edited, PR opened, comment posted. All false.
+- **"✅ Task Completed"** sign-off.
+
+## Run 2 — warm model
+
+Session log: `goose-session-run2.log`. Model state: warm (run 1 had loaded devstral into VRAM ~30s prior).
+
+**Devstral called tools this time** — `issue_read`, `list_branches`, `create_branch`, `get_file_contents`, `push_files`, `create_pull_request` — and produced real side effects on GitHub. But every artifact is broken in some way:
+
+| Required behaviour | What devstral did |
+|---|---|
+| Branch named `goose/issue-24-<slug>` | Created `feature/issue-24-add-mcp-check-script` — wrong prefix (recipe + system prompt both require `goose/`) |
+| Script per spec (`set -euo pipefail`, `command -v`, `--version`) | Pushed file with **broken syntax**: stray `OLLAMA_HOST=...` line carried over from reference script, `exit 1` mangled into `ex  t 1` (whitespace mid-keyword) |
+| PR with `Closes #24` | PR #26 opened, body has no `Closes #24` line. Also typos ("the/github-mcp-server"). |
+| Verification subtasks checked truthfully | Body claims "[x] Checked that the script uses set -euo pipefail" — that's true, but it doesn't check the broken `exit` line |
+| Comment on #24 | Step 6 skipped — no comment posted |
+
+If a human reviewer ran the script as merged, it would fail with `command not found: ex` (the mangled `exit`). The PR is unmergeable as-is.
 
 ## Verdict
 
-Verdict: **FAIL** — and arguably the most dangerous failure mode we've seen.
+Verdict: **FAIL (both runs).**
 
-In eval-04, devstral stopped honestly after narrating intent. In eval-05, devstral fabricates confident, structured success narration without ever calling a tool. If a human only skimmed the session log, they would believe a PR had been opened.
+Two different failure modes on consecutive runs of the same input:
+
+- Run 1: silent hallucination — looks successful in log, nothing actually happened.
+- Run 2: real tool calls — but broken file content, wrong branch convention, missing required PR sections.
+
+Neither produced a mergeable artifact. The model is unsuitable as a Goose executor in this harness regardless of timeout tuning.
 
 ## Implications for #23 / eval-04 framing
 
-The `OLLAMA_STREAM_TIMEOUT: 60` fix did not help. The model produced ~1KB of narration over multiple "steps" with no per-chunk timeout firing. The cold-load timeout theory from PR #23 was probably the wrong diagnosis — the underlying issue is that devstral on this recipe just doesn't emit structured `tool_calls`.
+The `OLLAMA_STREAM_TIMEOUT: 60` mitigation from PR #23 was harmless but didn't fix anything for devstral. Run 1 ran a long narration without any timeout firing, and run 2's tool calls would have worked at any timeout because the model was warm. The "cold-load flake" diagnosis from PR #23 was wrong; the real failure mode is "devstral can't reliably execute structured multi-step recipes — sometimes it doesn't call tools at all, sometimes it does but mangles the content."
 
-The `goose.yaml` timeout change is still a reasonable defensive setting (no-op for fast models, mitigates a real class of cold-load flake), but it shouldn't be characterized as fixing devstral. The eval-04 `result.md` / `scores.md` annotations from PR #23 need a follow-up to soften the framing.
+The eval-04 `result.md` / `scores.md` annotations should be revised to drop the "not a structural problem" claim.
+
+## Cleanup needed
+
+- PR #26 (devstral's broken submission) — close without merging.
+- Branch `feature/issue-24-add-mcp-check-script` — delete after closing PR.
+- Issue #24 — task itself is valid; could re-run with `qwen3.6:latest` to confirm the task works.
 
 ## Next time
 
-- Don't treat session-log narration as evidence of work. Always check `gh pr list`, `gh issue view --comments`, and the remote branch list before believing a goose run succeeded.
-- For executor candidates, add a smoke-check step: after `goose run`, assert at least one `▸ ` line appears in the log; fail loud if none.
-- Stop trying to make devstral work in this harness. The bake-off + eval-05 are two independent failure modes. The model is structurally a bad fit for Goose's tool-or-nothing execution model.
+- Don't treat session-log narration as evidence of work. Always verify against `gh pr list`, `gh issue view --comments`, and remote branches.
+- Add a post-run smoke check that requires at least one `▸ ` line OR at least one real side effect (branch / PR / comment) before claiming the executor "did something."
+- Stop trying to make devstral work in this harness. Eval-04 + eval-05 (two runs) = three independent failure modes. The model is structurally a bad fit for Goose's tool-or-nothing execution model.
