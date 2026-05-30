@@ -108,22 +108,24 @@ mismatch — worth investigating separately, not by re-scoring here.
 Same 6/15 numeric as qwen2.5-coder for the same reason: points-for-
 doing-nothing on dimensions 3 & 4 don't add up to a winner.
 
-> **Update (#16 investigation):** revisited on 2026-05-30. Direct
-> Ollama curl shows devstral emits a clean structured `tool_calls`
-> delta — identical shape to qwen3.6's. Re-running the same recipe
-> (`execute-issue.yaml --params issue_number=11`) in the same
-> container with `GOOSE_MODEL=devstral:latest`, devstral made the
-> `issue_read` tool call cleanly. The original failure didn't
-> reproduce.
+> **Update — devstral diagnosis revised (see eval-05).**
 >
-> Most likely cause was a cold-load timing flake: devstral emits
-> only 2 deltas total (`tool_calls` + `done`) after inference
-> completes — no progressive content. Cold model load (~5.6s for
-> 14 GB) + 1280-token prompt eval = long silence before the first
-> delta, plausibly exceeding Goose's default `OLLAMA_STREAM_TIMEOUT`.
-> Mitigation: raised `OLLAMA_STREAM_TIMEOUT` to 60s in `goose.yaml`.
+> An initial follow-up on 2026-05-30 suggested the bake-off
+> failure was a cold-load timing flake against Goose's default
+> `OLLAMA_STREAM_TIMEOUT`, on the basis of one successful retry
+> with a warm model. PR #23 landed an `OLLAMA_STREAM_TIMEOUT: 60`
+> mitigation on that hypothesis.
 >
-> So devstral is *not* structurally incompatible with the harness;
-> the 6/15 result here is a one-shot, not a reliable repro. A future
-> eval-NN could re-score devstral properly with the timeout fix in
-> place.
+> Eval-05 (PR #25) tested that hypothesis properly with five runs
+> of identical input — base `devstral:latest` cold, base warm, and
+> a custom `devstral-goose` Modelfile with `num_ctx 32768` under
+> both scrubbed-SYSTEM and original-OpenHands-SYSTEM variants.
+> All five failed, each with a different failure mode. The timeout
+> hypothesis is wrong; the mitigation is harmless but doesn't fix
+> anything for devstral.
+>
+> The 6/15 score on this row is meaningless. It's not a single
+> repeatable failure mode (as scored) — it's one sample from a
+> distribution of incoherent behaviours. Don't re-score, just stop
+> using the model. qwen3.6 remains the default; qwen2.5-coder's
+> Modelfile/template issue was closed without a fix planned.

@@ -6,14 +6,34 @@ Won by being the only model in the lineup that produced a PR. The
 other two failed at the tool-call protocol layer before doing any
 work.
 
-> **Update (#16 investigation):** the devstral failure documented
-> below did **not** reproduce on re-test — devstral now makes the
-> same `issue_read` call cleanly in the same recipe + container.
-> Likely cause was a cold-load + long-prompt timing flake against
-> Goose's default `OLLAMA_STREAM_TIMEOUT`. Mitigation landed in
-> `goose.yaml` (raised the timeout to 60s). qwen2.5-coder's failure
-> is a real Ollama Modelfile / chat-template issue and remains in
-> #16. Section below preserved as the original record.
+> **Update — devstral diagnosis revised (see eval-05).**
+>
+> The original write-up below treated devstral's failure as
+> "narrated intent, never invoked a tool" — a single deterministic
+> failure mode. Eval-05 (PR #25) re-tested devstral five times with
+> the same recipe and container, across two custom Modelfile
+> variants (num_ctx bumped, SYSTEM scrubbed and restored), and
+> produced **five distinct failure modes**: hallucinated workflows,
+> mangled file contents, XML-text-as-tool-call, immediate stops,
+> and full fabrication of GitHub UI HTML. Zero clean executions.
+>
+> Two takeaways:
+>
+> 1. The PR #23 framing — "cold-load + stream-timeout flake,
+>    `OLLAMA_STREAM_TIMEOUT: 60` fixes it" — was wrong. The bump
+>    is harmless defensive coding but it is not the reason devstral
+>    sometimes makes a tool call. Warmth, context size, and SYSTEM
+>    prompt content all changed *which* failure happened, not
+>    whether one happened.
+> 2. Devstral is unsuitable as a Goose executor in this harness.
+>    The 6/15 bake-off score for devstral is meaningless because
+>    the model never reliably executes the recipe at all.
+>
+> qwen2.5-coder's failure (different cause — Ollama Modelfile
+> doesn't route tool calls into the structured `tool_calls` slot,
+> see #16) was separately confirmed and closed with no fix planned.
+>
+> The sections below are preserved as the original record.
 
 ## Summary
 
