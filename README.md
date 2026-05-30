@@ -74,9 +74,10 @@ motivation. The host-side dependency is Docker Desktop and a PAT.
 
 ## Status
 
-**Settled on `qwen3.6:latest`** as the executor model after seven
-evals. The harness loop (Claude plans → Goose executes → human
-reviews → PR merged) is operational end to end.
+**Settled on `qwen3.6:latest`** as the executor model after six
+evals (eval-01, -02, -04, -05, -06, -07; eval-03 was skipped). The
+harness loop (Claude plans → Goose executes → human reviews → PR
+merged) is operational end to end.
 
 Eval log:
 
