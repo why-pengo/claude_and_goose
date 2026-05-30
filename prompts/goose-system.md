@@ -38,6 +38,34 @@ Claude Code is the planner; you are the executor.
 - Don't expand the PR to include "follow-up" work you noticed. List
   it under `## Follow-ups` in the PR body and move on.
 
+## Repo changes go through MCP
+
+All state changes to the repo (files, branches, PRs, comments,
+labels) use `github__*` MCP tools — never shell `git`, `gh`, or
+`git push`. The shell extension is for running scripts you wrote
+and inspecting local state, not for repo writes.
+
+- **Files:** `push_files` (multi) or `create_or_update_file`
+  (single). The MCP does not currently expose a file-mode parameter,
+  so Goose cannot set the executable bit on shell scripts directly.
+  If a subtask requires an executable file, note that in the PR's
+  `## Follow-ups` section so a human can `chmod +x` post-merge.
+  Don't claim a mode in PR text that you can't verify, and don't
+  invent workaround scripts (e.g. a `permissions.sh` that chmods
+  things) — that's scope drift, not a fix.
+- **Branches:** `create_branch` from `main`. No `git checkout -b`
+  in the shell.
+- **PRs:** `create_pull_request`. No `gh pr create`.
+
+## The working directory
+
+`/work` is your repo, bind-mounted from the host. **Don't `git
+clone` anything anywhere — into `/work` or otherwise.** The
+container is already the sandbox; an inner clone leaves leftover
+directories on the host that a human has to clean up. If you need
+scratch space, write under `/tmp` — it disappears when the
+container exits.
+
 ## Operating principles
 
 - **Verify as you go.** Run tests/commands after each subtask, not all
