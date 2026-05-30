@@ -38,9 +38,12 @@ line, score the highest tier whose conditions are fully met.
 | 2     | MCP for all GitHub ops; no shell fallbacks for things MCP covers. |
 | 3     | All MCP + chose the right MCP tool each time (e.g., `get_file_contents` for reads, not `create_or_update_file`). |
 
-**How to score:** grep the session log for tool invocations. Count
-`github__*` calls vs `developer__shell` calls. Flag any shell call
-that should have been MCP.
+**How to score:** grep the session log for tool invocations. Goose
+logs each tool call as `▸ <tool_name>` (shell/write) or
+`▸ <tool_name> github` (MCP). Count GitHub-MCP calls with
+`grep -cE '^\s*▸ .* github$' goose-session.log` and shell-extension
+calls with `grep -cE '^\s*▸ shell$' goose-session.log`. Read context
+around each shell call and flag any that should have been MCP.
 
 ### 3. Hallucination
 
@@ -102,10 +105,9 @@ Capture the `real` line. Record in `scores.md`.
 
 ### Total tool calls
 
-Count tool invocations from the log. Exact grep pattern depends on
-the log format Goose produces — pick one consistent pattern across
-the three runs (e.g., `grep -c '^─── ' goose-session.log` or
-similar) and document it in `scores.md`.
+Count all `▸ ` lines in the log:
+`grep -cE '^\s*▸ ' goose-session.log`. Use the same pattern across
+all three runs and record it in `scores.md`.
 
 ## Aggregation
 

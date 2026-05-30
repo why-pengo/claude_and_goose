@@ -25,7 +25,10 @@ clear stderr message if the host is unreachable.
 - The Ollama host setup is documented in `README.md` under the
   "Execution environment" section. The host URL is referenced in
   `goose.yaml`.
-- Use `http://${OLLAMA_HOST:-http://bazzite.local:11434}/api/tags`.
+- `OLLAMA_HOST` is a full base URL including scheme — the container
+  wrapper exports it as `http://<ip>:11434`. Build the endpoint as
+  `${OLLAMA_HOST:-http://bazzite.local:11434}/api/tags` (do NOT
+  prefix `http://` again — that produces `http://http://...`).
   The Ollama API returns JSON of the form
   `{"models": [{"name": "...", "size": ..., "details": {"parameter_size": "...", "quantization_level": "..."}}, ...]}`.
 - `scripts/new-eval.sh` is a good template for the script's shape:
@@ -41,8 +44,9 @@ clear stderr message if the host is unreachable.
       On any failure (network, DNS, non-200), print a clear stderr
       message that includes the URL attempted, then exit 1.
 - [ ] On success, pipe the JSON through `jq` to print one tab-separated
-      row per model: `<name>` `<size in GB, rounded>` `<parameter_size>`
-      `<quantization_level>`. The `size` field is bytes — divide by 1e9.
+      row per model with four fields in this order: `NAME`, `SIZE_GB`
+      (rounded), `PARAMETER_SIZE`, `QUANTIZATION_LEVEL`. The `size`
+      field is bytes — divide by 1e9.
 - [ ] Make the script executable (`chmod +x scripts/check-ollama.sh`).
 - [ ] Add one short line to `README.md`'s "Execution environment"
       section noting the script (e.g., "Run `./scripts/check-ollama.sh`
