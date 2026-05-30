@@ -23,6 +23,8 @@ the target project — it is the rig.
 | `prompts/issue-format.md`     | Canonical issue template |
 | `evals/`                      | One folder per eval run |
 | `scripts/new-eval.sh`         | Scaffold a new `evals/eval-NN/` directory |
+| `scripts/check-ollama.sh`     | List installed models on the Ollama host |
+| `scripts/post-run-check.sh`   | Verify a goose run produced real artifacts (tool calls + branch / PR) |
 | `Dockerfile`                  | `claude-and-goose-runtime` image — goose + github-mcp-server + gh + git, non-root |
 | `scripts/run-recipe-in-container.sh` | Wrapper that runs a recipe inside the sandbox image |
 | `scripts/smoke-isolation.sh`  | Containment smoke test for the runtime image |
@@ -64,28 +66,48 @@ motivation. The host-side dependency is Docker Desktop and a PAT.
      --params issue_number=N \
      | tee evals/eval-03/goose-session.log
    ```
-5. Write `evals/eval-03/result.md` (template scaffolded by the script).
+5. Verify the run produced real artifacts (catches the "narration-without-execution" failure mode from eval-05):
+   ```
+   ./scripts/post-run-check.sh N
+   ```
+6. Write `evals/eval-NN/result.md` (template scaffolded by the script).
 
 ## Status
 
-Harness is operational end-to-end. Three evals shipped:
+**Settled on `qwen3.6:latest`** as the executor model after seven
+evals. The harness loop (Claude plans → Goose executes → human
+reviews → PR merged) is operational end to end.
+
+Eval log:
 
 - **eval-01** — first containerised Goose run against a real issue.
 - **eval-02** — sandbox containment smoke test.
 - **eval-04-bakeoff** — three-model shootout
-  (`qwen3.6:latest` vs `qwen2.5-coder:32b` vs `devstral:latest`) on a
-  low-complexity sandbox task. `qwen3.6:latest` was the only model
-  to produce a PR and remains the harness default. See
+  (`qwen3.6:latest` vs `qwen2.5-coder:32b` vs `devstral:latest`).
+  Only qwen3.6 reliably completed the recipe.
   [`evals/eval-04-bakeoff/result.md`](evals/eval-04-bakeoff/result.md).
+- **eval-05** — five-run devstral re-bench under multiple config
+  variants. All five failed with distinct failure modes; devstral
+  written off as structurally unsuited.
+  [`evals/eval-05/result.md`](evals/eval-05/result.md).
+- **eval-06** — first real-target eval (`scripts/post-run-check.sh`).
+  Partial pass; human review caught GNU-only portability bugs.
+  [`evals/eval-06/result.md`](evals/eval-06/result.md).
+- **eval-07** — same task after prompt hardening. Shell-call count
+  dropped from 16 to 0; clone-into-host regression gone. New
+  shell/jq quoting bugs caught in review and fixed before merge.
+  [`evals/eval-07/result.md`](evals/eval-07/result.md).
 
-Open follow-ups from the bake-off:
+Other models considered: `qwen2.5-coder:32b` (Modelfile/template
+gap — emits tool calls as JSON text rather than structured
+`tool_calls`) and `devstral:latest` (trained for the OpenHands
+scaffold; conflicts with Goose's recipe and fails non-deterministically).
 
-- #15 — once upstream exposes a `mode` field on `push_files`
-  (filed as
-  [github/github-mcp-server#2578](https://github.com/github/github-mcp-server/issues/2578)),
-  update the prompt to use it for executable scripts. The
-  underlying Git Data API supports per-entry modes; the MCP tool
-  schema just doesn't surface them today.
-- #16 — investigate Goose tool-call format for non-qwen3.6 Ollama
-  models (qwen2.5-coder and devstral emitted zero recognised tool
-  calls).
+Open follow-up:
+
+- #15 — `push_files` doesn't expose a `mode` field on the MCP tool
+  schema, so executables can't be landed with the executable bit
+  set. Blocked on upstream
+  [github/github-mcp-server#2578](https://github.com/github/github-mcp-server/issues/2578).
+  Workaround: `chmod +x` post-merge, documented as a `## Follow-ups`
+  line in goose-authored PRs.
