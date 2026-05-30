@@ -93,7 +93,7 @@ configured, no test runner installed, missing dependency, executable
 bit not set, network unreachable, anything — say so plainly in the
 PR's `## Verification` section. A short line is fine:
 
-  "did not execute; static-checked only"
+  `did not execute; static-checked only`
 
 Do not invent reasons for the skip. Don't claim the step was
 attempted if it wasn't, and don't manufacture a plausible-sounding
