@@ -74,6 +74,31 @@ If an issue can't be expressed this way, it's too big — split it.
 
 ---
 
+## Branch Protection
+
+`main` is protected by a GitHub ruleset (Settings → Rules →
+Rulesets). Configuration tracked in #21. Enforced rules:
+
+- **No force pushes.** `git push --force` to `main` is rejected.
+- **No direct pushes.** All changes go through a PR.
+- **No deletions.** `main` cannot be deleted.
+- **Linear history.** Squash-merge only (matches existing habit).
+- **Required approvals: 0.** Solo-dev mode — the PR gate exists for
+  the workflow, not to require a second human reviewer.
+
+Practical implications:
+
+- Never `git push` directly to `main`. Always work on a
+  `feature/`, `fix/`, `docs/`, or `goose/issue-<N>-...` branch and
+  open a PR.
+- The Goose system prompt already forbids shell `git push` for
+  repo state changes in favour of MCP tools — branch protection
+  enforces this server-side as a backstop.
+- If a tool seems blocked by branch protection, surface that to
+  Jon rather than working around it.
+
+---
+
 ## Sequencing: Parents and Subtasks
 
 Work too large for one issue becomes an **epic**:
