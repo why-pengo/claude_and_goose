@@ -92,7 +92,9 @@ The PR body lists `backend/tests/test_hydration_goals.py` as a file changed — 
 
 ## Verdict
 
-Verdict: **PARTIAL PASS — meaningful progress**
+Verdict: PARTIAL
+
+Meaningful progress — first multi-file PR, structural correctness with one path slip.
 
 The "what hasn't been tested" line in `docs/using-on-another-repo.md` — multi-file changes — has been tested for the first time and the answer is *yes, partially*. qwen3.6 can produce a structurally correct 6-file backend feature whose router + model + schema + migration + main.py registration + conftest fixture all interlock and faithfully copy the established pattern in the codebase. That's a real capability we didn't have evidence for yesterday.
 

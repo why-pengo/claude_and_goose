@@ -91,11 +91,12 @@ Both look like `#N`. They are not interchangeable. The issue you
 are executing has a number; the PR you open (or have already
 opened) has a different number from a different counter.
 
-- `issue_read`, `add_issue_comment`, `update_issue` take the
+- `issue_read`, `add_issue_comment`, `issue_write` take the
   **issue** number.
-- `update_pull_request`, `create_pull_request` (after creation),
-  `get_pull_request` take the **PR** number — the value returned
-  by `create_pull_request`, or visible after `list_pull_requests`.
+- `update_pull_request`, `pull_request_read`, `merge_pull_request`
+  take the **PR** number — the value returned by `create_pull_request`,
+  or visible from `list_pull_requests`. (`create_pull_request` itself
+  creates a PR and *returns* the number; it doesn't take one as input.)
 - If you haven't called `create_pull_request` yet in this session,
   you have no PR number to update. Don't pass the issue number
   hoping the API treats them as the same.

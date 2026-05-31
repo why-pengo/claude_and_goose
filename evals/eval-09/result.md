@@ -90,9 +90,9 @@ The first comment includes both `"Static verification: All files read back from 
 
 ## Verdict
 
-Verdict: **PASS** — first clean cross-repo run.
+Verdict: PASS
 
-Both eval-08 prompt edits validated. The remaining issues (Subtask checkboxes, PR# narration) are either pre-existing follow-ups or soft variants that don't justify their own prompt iteration yet.
+First clean cross-repo run. Both eval-08 prompt edits validated. The remaining issues (Subtask checkboxes, PR# narration) are either pre-existing follow-ups or soft variants that don't justify their own prompt iteration yet.
 
 ## Action items
 
