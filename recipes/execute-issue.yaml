@@ -80,16 +80,15 @@ prompt: |
 
   # Step 3 — Execute subtasks in order
 
-  **Land every change via the github extension.** Use `push_files`
-  (multi-file commit) or `create_or_update_file` (single-file commit)
-  to write to the branch you created in Step 2. Never use the
-  developer extension's `write` or `edit` for target-repo files —
-  those tools modify `/work/` inside the container, which is *not*
-  the target repo's working copy. Files written that way never reach
-  GitHub, your branch stays empty, and Steps 5–6 have nothing to fire
-  on. `developer.shell`/`write`/`edit` are fine for *local* operations
-  (running tests, inspecting downloaded content, scratch files under
-  `/tmp`) — just not for code that needs to land on the branch.
+  **Land every change via the github extension.** Only `push_files`
+  (multi-file commit) and `create_or_update_file` (single-file commit)
+  actually update the branch on GitHub. The developer extension's
+  `write` and `edit` modify the container's filesystem only — they do
+  not push to the branch. If you use them for code that needs to land
+  on the branch, your branch stays empty and Steps 5–6 have nothing
+  to fire on. `developer.shell`/`write`/`edit` are fine for *local*
+  operations (running tests, inspecting downloaded content, scratch
+  files under `/tmp`) — just not for the code changes themselves.
 
   Before overwriting an existing file in the target repo, read its
   current content first with `get_file_contents`. Don't fabricate a
