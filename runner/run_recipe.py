@@ -1,0 +1,646 @@
+#!/usr/bin/env python3
+"""
+Direct-Ollama recipe runner — proof-of-concept replacement for `goose run`.
+
+Built to test the hypothesis from eval-17/eval-19 series: that Goose's
+session-loop choice to exit-0 on "no tool call this turn" is the
+structural reliability ceiling. This runner owns the session loop and
+prompts the model to continue when it emits no tool call — rather than
+treating the empty turn as completion.
+
+Same recipe YAML and prompts as Goose uses. Calls Ollama directly via
+the OpenAI-compat endpoint. Implements the same ~8 github tools as
+wrappers around `gh` CLI, plus a read-only shell tool.
+
+Usage:
+    python runner/run_recipe.py \\
+        --recipe recipes/execute-issue.yaml \\
+        --params issue_number=51 \\
+        --params repo=why-pengo/health_track
+
+Env required:
+    GITHUB_PERSONAL_ACCESS_TOKEN (used by `gh` CLI)
+"""
+
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+import httpx
+import yaml
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+SYSTEM_PROMPT_PATH = REPO_ROOT / "prompts" / "goose-system.md"
+
+# These match what Goose's github MCP exposes today, by name.
+# Argument shapes match what the model has seen across eval-14 etc.
+TOOL_SCHEMAS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "github__issue_read",
+            "description": "Read a GitHub issue by number.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "owner": {"type": "string"},
+                    "repo": {"type": "string"},
+                    "issue_number": {"type": "integer"},
+                },
+                "required": ["owner", "repo", "issue_number"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "github__get_file_contents",
+            "description": "Fetch a file's contents from a GitHub repo. Returns 404 if missing.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "owner": {"type": "string"},
+                    "repo": {"type": "string"},
+                    "path": {"type": "string"},
+                    "ref": {"type": "string", "description": "Optional branch or commit. Defaults to the repo's default branch."},
+                },
+                "required": ["owner", "repo", "path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "github__create_branch",
+            "description": "Create a new branch from an existing one.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "owner": {"type": "string"},
+                    "repo": {"type": "string"},
+                    "branch": {"type": "string"},
+                    "from_branch": {"type": "string"},
+                },
+                "required": ["owner", "repo", "branch", "from_branch"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "github__create_or_update_file",
+            "description": "Create or update a single file on a branch with one commit.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "owner": {"type": "string"},
+                    "repo": {"type": "string"},
+                    "branch": {"type": "string"},
+                    "path": {"type": "string"},
+                    "content": {"type": "string"},
+                    "message": {"type": "string"},
+                },
+                "required": ["owner", "repo", "branch", "path", "content", "message"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "github__push_files",
+            "description": "Push multiple files in a single commit on a branch.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "owner": {"type": "string"},
+                    "repo": {"type": "string"},
+                    "branch": {"type": "string"},
+                    "files": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "path": {"type": "string"},
+                                "content": {"type": "string"},
+                            },
+                            "required": ["path", "content"],
+                        },
+                    },
+                    "message": {"type": "string"},
+                },
+                "required": ["owner", "repo", "branch", "files", "message"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "github__create_pull_request",
+            "description": "Open a pull request. Returns the new PR's number.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "owner": {"type": "string"},
+                    "repo": {"type": "string"},
+                    "title": {"type": "string"},
+                    "body": {"type": "string"},
+                    "head": {"type": "string", "description": "Source branch."},
+                    "base": {"type": "string", "description": "Target branch."},
+                },
+                "required": ["owner", "repo", "title", "body", "head", "base"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "github__add_issue_comment",
+            "description": "Post a comment on a GitHub issue.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "owner": {"type": "string"},
+                    "repo": {"type": "string"},
+                    "issue_number": {"type": "integer"},
+                    "body": {"type": "string"},
+                },
+                "required": ["owner", "repo", "issue_number", "body"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "shell",
+            "description": "Run a read-only shell command (ls, cat, grep, find, etc.). No writes.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {"type": "string"},
+                },
+                "required": ["command"],
+            },
+        },
+    },
+]
+
+SHELL_WRITE_BLOCKLIST = re.compile(
+    r"\b(rm|mv|chmod|chown|dd|mkfs|fdisk|>>?\s|tee\b|>|"
+    r"git\s+push|git\s+commit|git\s+reset|git\s+rebase|"
+    r"echo\s+.+>|cp\s+.+\s+/|truncate)"
+)
+
+
+# ---------------------------------------------------------------------------
+# Tool implementations — thin wrappers around `gh` CLI
+# ---------------------------------------------------------------------------
+
+
+def _gh(args: list[str], stdin: str | None = None) -> tuple[int, str, str]:
+    """Invoke `gh` and return (returncode, stdout, stderr)."""
+    proc = subprocess.run(
+        ["gh", *args],
+        input=stdin,
+        capture_output=True,
+        text=True,
+    )
+    return proc.returncode, proc.stdout, proc.stderr
+
+
+def github_issue_read(args: dict) -> str:
+    rc, out, err = _gh([
+        "api",
+        f"repos/{args['owner']}/{args['repo']}/issues/{args['issue_number']}",
+        "--jq", "{number, title, body, state, labels: [.labels[].name]}",
+    ])
+    return out if rc == 0 else f"ERROR: {err.strip()}"
+
+
+def github_get_file_contents(args: dict) -> str:
+    ref = args.get("ref")
+    path = f"repos/{args['owner']}/{args['repo']}/contents/{args['path']}"
+    if ref:
+        path += f"?ref={ref}"
+    rc, out, err = _gh(["api", path, "--jq", ".content"])
+    if rc != 0:
+        return f"ERROR: {err.strip()}"
+    # GitHub returns base64-encoded content; decode to text.
+    import base64
+    try:
+        decoded = base64.b64decode(out.strip().replace('"', '')).decode("utf-8")
+        return decoded
+    except Exception as e:
+        return f"ERROR decoding content: {e}"
+
+
+def github_create_branch(args: dict) -> str:
+    # Get the SHA of the from_branch's HEAD
+    rc, out, err = _gh([
+        "api",
+        f"repos/{args['owner']}/{args['repo']}/git/refs/heads/{args['from_branch']}",
+        "--jq", ".object.sha",
+    ])
+    if rc != 0:
+        return f"ERROR resolving from_branch: {err.strip()}"
+    sha = out.strip()
+
+    payload = json.dumps({
+        "ref": f"refs/heads/{args['branch']}",
+        "sha": sha,
+    })
+    rc, out, err = _gh([
+        "api",
+        "-X", "POST",
+        f"repos/{args['owner']}/{args['repo']}/git/refs",
+        "--input", "-",
+    ], stdin=payload)
+    if rc != 0:
+        return f"ERROR creating branch: {err.strip()}"
+    return f"Created branch {args['branch']} from {args['from_branch']} at {sha[:7]}"
+
+
+def github_create_or_update_file(args: dict) -> str:
+    import base64
+    content_b64 = base64.b64encode(args["content"].encode("utf-8")).decode("ascii")
+    # Check if the file exists to get its SHA (required for updates)
+    rc, out, _ = _gh([
+        "api",
+        f"repos/{args['owner']}/{args['repo']}/contents/{args['path']}?ref={args['branch']}",
+        "--jq", ".sha",
+    ])
+    payload = {
+        "message": args["message"],
+        "content": content_b64,
+        "branch": args["branch"],
+    }
+    if rc == 0 and out.strip():
+        payload["sha"] = out.strip().replace('"', '')
+    rc, out, err = _gh([
+        "api",
+        "-X", "PUT",
+        f"repos/{args['owner']}/{args['repo']}/contents/{args['path']}",
+        "--input", "-",
+    ], stdin=json.dumps(payload))
+    if rc != 0:
+        return f"ERROR pushing file: {err.strip()}"
+    return f"Pushed {args['path']} to {args['branch']}"
+
+
+def github_push_files(args: dict) -> str:
+    """Multi-file commit. Builds a tree + commit + ref update via git data API."""
+    owner, repo, branch = args["owner"], args["repo"], args["branch"]
+
+    rc, out, err = _gh([
+        "api",
+        f"repos/{owner}/{repo}/git/refs/heads/{branch}",
+        "--jq", ".object.sha",
+    ])
+    if rc != 0:
+        return f"ERROR resolving branch HEAD: {err.strip()}"
+    parent_sha = out.strip()
+
+    rc, out, err = _gh([
+        "api",
+        f"repos/{owner}/{repo}/git/commits/{parent_sha}",
+        "--jq", ".tree.sha",
+    ])
+    if rc != 0:
+        return f"ERROR resolving parent tree: {err.strip()}"
+    base_tree = out.strip()
+
+    tree_entries = []
+    for f in args["files"]:
+        blob_payload = json.dumps({
+            "content": f["content"],
+            "encoding": "utf-8",
+        })
+        rc, out, err = _gh([
+            "api", "-X", "POST",
+            f"repos/{owner}/{repo}/git/blobs",
+            "--input", "-",
+            "--jq", ".sha",
+        ], stdin=blob_payload)
+        if rc != 0:
+            return f"ERROR creating blob for {f['path']}: {err.strip()}"
+        blob_sha = out.strip()
+        tree_entries.append({
+            "path": f["path"],
+            "mode": "100644",
+            "type": "blob",
+            "sha": blob_sha,
+        })
+
+    tree_payload = json.dumps({
+        "base_tree": base_tree,
+        "tree": tree_entries,
+    })
+    rc, out, err = _gh([
+        "api", "-X", "POST",
+        f"repos/{owner}/{repo}/git/trees",
+        "--input", "-",
+        "--jq", ".sha",
+    ], stdin=tree_payload)
+    if rc != 0:
+        return f"ERROR creating tree: {err.strip()}"
+    new_tree = out.strip()
+
+    commit_payload = json.dumps({
+        "message": args["message"],
+        "tree": new_tree,
+        "parents": [parent_sha],
+    })
+    rc, out, err = _gh([
+        "api", "-X", "POST",
+        f"repos/{owner}/{repo}/git/commits",
+        "--input", "-",
+        "--jq", ".sha",
+    ], stdin=commit_payload)
+    if rc != 0:
+        return f"ERROR creating commit: {err.strip()}"
+    new_commit = out.strip()
+
+    ref_payload = json.dumps({"sha": new_commit})
+    rc, _, err = _gh([
+        "api", "-X", "PATCH",
+        f"repos/{owner}/{repo}/git/refs/heads/{branch}",
+        "--input", "-",
+    ], stdin=ref_payload)
+    if rc != 0:
+        return f"ERROR updating ref: {err.strip()}"
+    return f"Pushed {len(args['files'])} files to {branch} as commit {new_commit[:7]}"
+
+
+def github_create_pull_request(args: dict) -> str:
+    payload = json.dumps({
+        "title": args["title"],
+        "body": args["body"],
+        "head": args["head"],
+        "base": args["base"],
+    })
+    rc, out, err = _gh([
+        "api", "-X", "POST",
+        f"repos/{args['owner']}/{args['repo']}/pulls",
+        "--input", "-",
+        "--jq", "{number, url: .html_url}",
+    ], stdin=payload)
+    if rc != 0:
+        return f"ERROR opening PR: {err.strip()}"
+    return out.strip()
+
+
+def github_add_issue_comment(args: dict) -> str:
+    payload = json.dumps({"body": args["body"]})
+    rc, out, err = _gh([
+        "api", "-X", "POST",
+        f"repos/{args['owner']}/{args['repo']}/issues/{args['issue_number']}/comments",
+        "--input", "-",
+        "--jq", ".html_url",
+    ], stdin=payload)
+    if rc != 0:
+        return f"ERROR adding comment: {err.strip()}"
+    return out.strip()
+
+
+def shell(args: dict) -> str:
+    cmd = args["command"]
+    if SHELL_WRITE_BLOCKLIST.search(cmd):
+        return "ERROR: write-shaped command blocked by runner policy. Use github_* tools for repo writes."
+    proc = subprocess.run(
+        ["bash", "-c", cmd],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        cwd=str(REPO_ROOT),
+    )
+    output = proc.stdout + (proc.stderr if proc.stderr else "")
+    return output[:8000]  # truncate to keep context bounded
+
+
+DISPATCH = {
+    "github__issue_read": github_issue_read,
+    "github__get_file_contents": github_get_file_contents,
+    "github__create_branch": github_create_branch,
+    "github__create_or_update_file": github_create_or_update_file,
+    "github__push_files": github_push_files,
+    "github__create_pull_request": github_create_pull_request,
+    "github__add_issue_comment": github_add_issue_comment,
+    "shell": shell,
+}
+
+
+# ---------------------------------------------------------------------------
+# Ollama client + session loop
+# ---------------------------------------------------------------------------
+
+
+def ollama_chat(host: str, model: str, messages: list, tools: list) -> dict:
+    url = f"{host.rstrip('/')}/v1/chat/completions"
+    payload = {
+        "model": model,
+        "messages": messages,
+        "tools": tools,
+        "stream": False,
+    }
+    with httpx.Client(timeout=600.0) as client:
+        r = client.post(url, json=payload)
+        r.raise_for_status()
+        return r.json()
+
+
+def template_recipe(prompt: str, params: dict) -> str:
+    """Replace {{ key }} placeholders with parameter values."""
+    def sub(m):
+        key = m.group(1).strip()
+        if key not in params:
+            raise KeyError(f"Recipe references {{{{ {key} }}}} but no --params {key}=... was passed")
+        return str(params[key])
+    return re.sub(r"\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}", sub, prompt)
+
+
+def load_recipe(path: Path, params: dict) -> tuple[str, str]:
+    """Returns (templated_prompt, recipe_title)."""
+    data = yaml.safe_load(path.read_text())
+    title = data.get("title", "Recipe")
+    raw_prompt = data["prompt"]
+    return template_recipe(raw_prompt, params), title
+
+
+def recipe_done(messages: list) -> bool:
+    """True if both create_pull_request and add_issue_comment have been called."""
+    called = set()
+    for m in messages:
+        if m.get("role") == "assistant" and m.get("tool_calls"):
+            for tc in m["tool_calls"]:
+                called.add(tc["function"]["name"])
+    return (
+        "github__create_pull_request" in called
+        and "github__add_issue_comment" in called
+    )
+
+
+def log_tool_call(name: str, args: dict) -> None:
+    """Mirror Goose's ▸ marker format so eval logs are comparable."""
+    print("\n  ────────────────────────────────────────")
+    print(f"  ▸ {name}")
+    for k, v in args.items():
+        if isinstance(v, str) and len(v) > 200:
+            v = v[:200] + "... [truncated]"
+        elif isinstance(v, list):
+            v = f"[{len(v)} items]"
+        print(f"    {k}: {v}")
+    print()
+
+
+def run_session(
+    host: str,
+    model: str,
+    recipe_path: Path,
+    params: dict,
+    max_turns: int = 60,
+) -> int:
+    system_prompt = SYSTEM_PROMPT_PATH.read_text()
+    recipe_prompt, recipe_title = load_recipe(recipe_path, params)
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": recipe_prompt},
+    ]
+
+    print(f"Runner:         direct-ollama POC")
+    print(f"Repo:           {REPO_ROOT}")
+    print(f"Ollama:         {host}")
+    print(f"Recipe:         {recipe_path}  ({recipe_title})")
+    print(f"Model:          {model}")
+    print(f"Params:         {params}")
+    print(f"Tools:          {len(TOOL_SCHEMAS)} declared")
+    print()
+    print(f"=== Session start ===")
+
+    empty_turn_count = 0
+    for turn in range(1, max_turns + 1):
+        resp = ollama_chat(host, model, messages, TOOL_SCHEMAS)
+        msg = resp["choices"][0]["message"]
+        messages.append(msg)
+
+        tool_calls = msg.get("tool_calls") or []
+        content = msg.get("content") or ""
+
+        if tool_calls:
+            empty_turn_count = 0
+            for tc in tool_calls:
+                fn_name = tc["function"]["name"]
+                try:
+                    fn_args = json.loads(tc["function"]["arguments"])
+                except json.JSONDecodeError:
+                    fn_args = tc["function"]["arguments"]
+                log_tool_call(fn_name, fn_args if isinstance(fn_args, dict) else {"raw": fn_args})
+                impl = DISPATCH.get(fn_name)
+                if impl is None:
+                    result = f"ERROR: unknown tool {fn_name}. Available: {sorted(DISPATCH.keys())}"
+                else:
+                    try:
+                        result = impl(fn_args if isinstance(fn_args, dict) else {})
+                    except Exception as e:
+                        result = f"ERROR running {fn_name}: {type(e).__name__}: {e}"
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc["id"],
+                    "content": result,
+                })
+            if recipe_done(messages):
+                print(f"\n=== Recipe complete: PR + issue comment both fired (turn {turn}) ===")
+                return 0
+            continue
+
+        # No tool call this turn. THIS IS THE CRUX of the POC.
+        # Goose would exit here; we prompt the model to continue.
+        if content:
+            print(f"\n  [model emitted prose — {len(content)} chars; no tool call]")
+            print(f"  {content[:300]}{'...' if len(content) > 300 else ''}\n")
+
+        empty_turn_count += 1
+        if empty_turn_count >= 3:
+            print(f"\n=== 3 consecutive no-tool-call turns; giving up (turn {turn}) ===")
+            return 2
+
+        if recipe_done(messages):
+            print(f"\n=== Recipe complete (turn {turn}) ===")
+            return 0
+
+        messages.append({
+            "role": "user",
+            "content": (
+                "You emitted no tool call this turn. The recipe is not complete. "
+                "Identify which step you're on (Step 0-6) and call the next tool directly. "
+                "Do not narrate. Do not summarize. Call the tool."
+            ),
+        })
+
+    print(f"\n=== Hit max_turns ({max_turns}); giving up ===")
+    return 3
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+
+def resolve_base_branch(target_repo: str) -> str | None:
+    """Mirror the wrapper's default_branch resolution."""
+    rc, out, _ = _gh(["api", f"repos/{target_repo}", "--jq", ".default_branch"])
+    return out.strip() if rc == 0 and out.strip() else None
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--recipe", required=True, type=Path)
+    parser.add_argument("--params", action="append", default=[])
+    parser.add_argument("--model", default=os.environ.get("RUNNER_MODEL", "qwen3.6:latest"))
+    parser.add_argument(
+        "--ollama-host",
+        default=os.environ.get("OLLAMA_HOST", "http://bazzite.local:11434"),
+    )
+    parser.add_argument("--max-turns", type=int, default=60)
+    args = parser.parse_args()
+
+    if not args.recipe.exists():
+        print(f"Recipe not found: {args.recipe}", file=sys.stderr)
+        return 2
+
+    if not os.environ.get("GITHUB_PERSONAL_ACCESS_TOKEN"):
+        print("GITHUB_PERSONAL_ACCESS_TOKEN not set", file=sys.stderr)
+        return 2
+
+    params = {}
+    for p in args.params:
+        if "=" not in p:
+            print(f"Bad --params format: {p}", file=sys.stderr)
+            return 2
+        k, v = p.split("=", 1)
+        params[k] = v
+
+    if "base_branch" not in params and "repo" in params:
+        resolved = resolve_base_branch(params["repo"])
+        if resolved:
+            params["base_branch"] = resolved
+            print(f"(resolved base_branch={resolved} from {params['repo']})")
+        else:
+            params["base_branch"] = "main"
+            print(f"(could not resolve default_branch; defaulting base_branch=main)")
+
+    return run_session(
+        host=args.ollama_host,
+        model=args.model,
+        recipe_path=args.recipe,
+        params=params,
+        max_turns=args.max_turns,
+    )
+
+
+if __name__ == "__main__":
+    sys.exit(main())
