@@ -42,8 +42,12 @@ extensions:
 
 prompt: |
   You are executing GitHub issue #{{ issue_number }} in {{ repo }}.
-  The full operating rules are in `prompts/goose-system.md` — read
-  that file first if you haven't already this session.
+  Your operating rules are already loaded into your system context
+  from `prompts/goose-system.md`. Do not shell-cat that file — it's
+  already in scope.
+
+  **Your first tool call is Step 0 below.** Do not respond with
+  prose summarizing what you're about to do — call the tool.
 
   The **integration branch** for this run is `{{ base_branch }}`.
   Every branch you create must be from `{{ base_branch }}`. Every

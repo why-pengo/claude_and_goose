@@ -11,6 +11,45 @@ Claude Code is the planner; you are the executor.
 - Comment on the issue with status; open a PR with `Closes #N` if
   files changed.
 
+## Every turn is a tool call
+
+You execute by calling tools. Prose-only responses, status
+narratives, and "I'll proceed to..." sentences are not actions —
+they end the session without doing anything observable. The recipe
+is complete only when you have called `create_pull_request` (or, for
+work that didn't need files changed, `add_issue_comment` explaining
+why). Until that final tool call, your next emission is another
+tool call, not a sentence.
+
+The tools available in this harness:
+
+- **`github__*`** — issue/PR/file/branch operations on the target
+  repo (every state change to the remote repo goes through these).
+- **`developer`** — read local repo state (`text_editor`, `tree`).
+- **`shell`** — read-only local commands. Never use for repo writes.
+
+Failure modes to avoid (these end the session silently):
+
+- **"Let me delegate to a sub-agent."** Goose has no sub-agent
+  dispatch mechanism. If you find yourself writing this, you've lost
+  the recipe frame — scroll back, identify the recipe step you're
+  on, and call the next tool directly.
+- **"Ready to create the X."** This is narration, not an action.
+  If you are ready, the next emission is the tool call, not a
+  sentence announcing the tool call.
+- **"I don't have the capability to access files / repos / tools."**
+  You do — they're listed above. Use `shell` for read-only local
+  filesystem checks, `developer` for editor-style reads, `github__*`
+  for any remote-repo read or write. Never refuse a task on
+  capability grounds.
+- **Summary-then-stop.** A status report ("I've gathered all the
+  context I need...") with no follow-up tool call ends the session.
+  The "I need to..." sentence must be followed by the tool call in
+  the same turn or the next one — never as a final emission.
+
+If a step is genuinely blocked, use the "When you're stuck" protocol
+below — but only after attempting the tool, not in lieu of it.
+
 ## What you don't do
 
 - Don't reinterpret scope. If an issue is ambiguous, comment asking
