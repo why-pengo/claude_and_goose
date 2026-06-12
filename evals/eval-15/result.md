@@ -8,9 +8,9 @@ Result: **the experiment could not answer its original question.** The HW side w
 
 ## Verdict
 
-Verdict: INVALID
+Verdict: FAIL
 
-Not a model-capability verdict — the model never got to demonstrate capability on the recipe. The failure mode is **instruction-following under tool-rich prompts**: Llama 3.3 Q3 couldn't reliably recall the exact names of the ~10 GitHub MCP tools Goose declared, and invented a half-namespaced version that doesn't exist. The recipe-completion question (does 70B help?) remains open.
+The experiment failed at the tool-call integration boundary before the model could demonstrate capability on the recipe. This is not a model-capability verdict — it's an instruction-following failure under tool-rich prompts: Llama 3.3 Q3 couldn't reliably recall the exact names of the ~10 GitHub MCP tools Goose declared, and invented a half-namespaced version (`github__issue`) that doesn't exist. The recipe-completion question (does 70B help?) remains open. (The eval is effectively "invalidated" with respect to its original question — see `evals/README.md` for the machine-readable verdict convention; FAIL is the closest matching value.)
 
 ## What ran
 

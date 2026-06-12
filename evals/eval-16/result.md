@@ -8,9 +8,9 @@ Result: **same class of integration failure as eval-15.** Different mechanism th
 
 ## Verdict
 
-Verdict: INVALID
+Verdict: FAIL
 
-The recipe-completion question (does a non-qwen3.6 model help?) remains unanswered. Two consecutive model-swap attempts (eval-15: Llama 3.3 70B, eval-16: qwen2.5-coder:32b) failed at the tool-call integration boundary before either model could demonstrate capability on the recipe. Combined with eval-04's earlier qwen2.5-coder failure, this points to a structural property of the Goose + Ollama OpenAI-compat stack — not a per-model bug.
+The recipe-completion question (does a non-qwen3.6 model help?) remains unanswered. Two consecutive model-swap attempts (eval-15: Llama 3.3 70B, eval-16: qwen2.5-coder:32b) failed at the tool-call integration boundary before either model could demonstrate capability on the recipe. Combined with eval-04's earlier qwen2.5-coder failure, this points to a structural property of the Goose + Ollama OpenAI-compat stack — not a per-model bug. (The eval is effectively "invalidated" with respect to its original question — see `evals/README.md` for the machine-readable verdict convention; FAIL is the closest matching value.)
 
 ## What ran
 
