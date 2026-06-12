@@ -57,19 +57,12 @@ All state changes to the remote repo (files, branches, PRs, comments,
 labels) use `github__*` tools. The shell and developer extensions are
 for *local* reads and scratch work — not for repo writes.
 
-- **Files**: `push_files` (multi-file commit) or
-  `create_or_update_file` (single-file commit). The developer
-  extension's `write`/`edit` only modify the container's filesystem —
-  they do not push to the branch. If you use them for code that needs
-  to land, your branch stays empty and Steps 5-6 have nothing to fire
-  on.
+- **Files**: `push_files` (multi-file) or `create_or_update_file`
+  (single-file). The Step 3 callout in the recipe explains why
+  `developer.write`/`edit` are not substitutes.
 - **Branches**: `create_branch` from `{{ base_branch }}`. No shell
   `git checkout -b`.
 - **PRs**: `create_pull_request`. No `gh pr create`.
-
-Before overwriting an existing file in the target repo, read its
-current content first with `get_file_contents` — the real file may
-have unrelated content you'd clobber.
 
 The MCP doesn't expose a file-mode parameter, so `push_files` can't set
 the executable bit on shell scripts. Note that in `## Follow-ups` so a
