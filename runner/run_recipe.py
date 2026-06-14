@@ -34,6 +34,7 @@ from pathlib import Path
 import httpx
 import yaml
 
+from gh import _gh
 from salvage import salvage_comment, salvage_pr
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -192,7 +193,7 @@ TOOL_SCHEMAS = [
 ]
 
 SHELL_WRITE_BLOCKLIST = re.compile(
-    r"\b(rm|mv|chmod|chown|dd|mkfs|fdisk|>>?\s|tee\b|>|"
+    r"\b(rm|mv|chmod|chown|dd|mkfs|fdisk|>>?\s|tee\b|"
     r"git\s+push|git\s+commit|git\s+reset|git\s+rebase|"
     r"echo\s+.+>|cp\s+.+\s+/|truncate)"
 )
@@ -201,17 +202,6 @@ SHELL_WRITE_BLOCKLIST = re.compile(
 # ---------------------------------------------------------------------------
 # Tool implementations — thin wrappers around `gh` CLI
 # ---------------------------------------------------------------------------
-
-
-def _gh(args: list[str], stdin: str | None = None) -> tuple[int, str, str]:
-    """Invoke `gh` and return (returncode, stdout, stderr)."""
-    proc = subprocess.run(
-        ["gh", *args],
-        input=stdin,
-        capture_output=True,
-        text=True,
-    )
-    return proc.returncode, proc.stdout, proc.stderr
 
 
 def github_issue_read(args: dict) -> str:
@@ -230,6 +220,10 @@ def github_get_file_contents(args: dict) -> str:
         path += f"?ref={ref}"
     rc, out, err = _gh(["api", path, "--jq", ".content"])
     if rc != 0:
+        # Distinguish 404 (file genuinely missing) from real failures so the
+        # model can apply the recipe's "404 = skip" rule for AGENTS.md etc.
+        if "Not Found" in err or "(HTTP 404)" in err:
+            return f"NOT_FOUND: {args['path']}"
         return f"ERROR: {err.strip()}"
     # GitHub returns base64-encoded content; decode to text.
     import base64
@@ -465,10 +459,22 @@ def template_recipe(prompt: str, params: dict) -> str:
 
 
 def load_recipe(path: Path, params: dict) -> tuple[str, str]:
-    """Returns (templated_prompt, recipe_title)."""
+    """Returns (templated_prompt, recipe_title).
+
+    Mutates `params` to apply the recipe's declared parameter defaults for any
+    key not explicitly passed — so a recipe author marking a parameter as
+    optional-with-default works as advertised.
+    """
     data = yaml.safe_load(path.read_text())
     title = data.get("title", "Recipe")
     raw_prompt = data["prompt"]
+
+    for p in data.get("parameters") or []:
+        key = p.get("key")
+        default = p.get("default")
+        if key and key not in params and default is not None:
+            params[key] = default
+
     return template_recipe(raw_prompt, params), title
 
 
@@ -660,8 +666,10 @@ def run_session(
     max_turns: int = 60,
     salvage_enabled: bool = True,
 ) -> int:
-    system_prompt = SYSTEM_PROMPT_PATH.read_text()
     recipe_prompt, recipe_title = load_recipe(recipe_path, params)
+    # load_recipe filled in YAML-declared defaults; now safe to template the
+    # system prompt, which also references {{ base_branch }}.
+    system_prompt = template_recipe(SYSTEM_PROMPT_PATH.read_text(), params)
 
     messages = [
         {"role": "system", "content": system_prompt},
@@ -693,7 +701,9 @@ def run_session(
                 fn_name = tc["function"]["name"]
                 try:
                     fn_args = json.loads(tc["function"]["arguments"])
-                except json.JSONDecodeError:
+                except (json.JSONDecodeError, TypeError):
+                    # TypeError covers Ollama providers that return arguments
+                    # as None or as a dict already (rather than a JSON string).
                     fn_args = tc["function"]["arguments"]
                 log_tool_call(fn_name, fn_args if isinstance(fn_args, dict) else {"raw": fn_args})
                 impl = DISPATCH.get(fn_name)

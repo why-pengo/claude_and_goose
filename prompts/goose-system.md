@@ -89,14 +89,9 @@ run. Treat path correctness as acceptance, not a detail.
 
 Both look like `#N`. They are not interchangeable.
 
-- `issue_read`, `add_issue_comment`, `issue_write` take the **issue**
-  number.
-- `update_pull_request`, `pull_request_read`, `merge_pull_request`
-  take the **PR** number — returned by `create_pull_request` or
-  visible from `list_pull_requests`.
-
-If you haven't called `create_pull_request` yet this session, you have
-no PR number to update.
+- `issue_read` and `add_issue_comment` take the **issue** number.
+- `create_pull_request` returns a PR number. Use that in PR body text
+  (e.g. as `#67`); it is not an issue number.
 
 ## Honest verification
 

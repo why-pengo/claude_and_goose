@@ -14,17 +14,8 @@ the verification work was not done by the model.
 from __future__ import annotations
 
 import json
-import subprocess
 
-
-def _gh(args: list[str], stdin: str | None = None) -> tuple[int, str, str]:
-    proc = subprocess.run(
-        ["gh", *args],
-        input=stdin,
-        capture_output=True,
-        text=True,
-    )
-    return proc.returncode, proc.stdout, proc.stderr
+from gh import _gh
 
 
 def _branch_exists(repo: str, branch: str) -> bool:
